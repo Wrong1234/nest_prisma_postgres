@@ -1,26 +1,69 @@
+// import { Injectable } from '@nestjs/common';
+// import { PrismaService } from '../../prisma/prisma.service';
+
+// @Injectable()
+// export class UsersService {
+//   constructor(private readonly prisma: PrismaService) {}
+
+//   findByEmail(email: string) {
+//     return this.prisma.user.findUnique({ where: { email } });
+//   }
+
+//   findById(id: number) {
+//     return this.prisma.user.findUnique({ where: { id } });
+//   }
+
+//   create(data: { email: string; password: string; name: string }) {
+//     return this.prisma.user.create({ data });
+//   }
+// }
+
 import { Injectable } from '@nestjs/common';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class UsersService {
-  create(createUserDto: CreateUserDto) {
-    return 'This action adds a new user';
+  constructor(private readonly prisma: PrismaService) {}
+
+  findByEmail(email: string) {
+    return this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
 
-  findAll() {
-    return `This action returns all users`;
+  findById(id: number) {
+    return this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+        // password excluded intentionally for security
+      },
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} user`;
-  }
-
-  update(id: number, updateUserDto: UpdateUserDto) {
-    return `This action updates a #${id} user`;
-  }
-
-  remove(id: number) {
-    return `This action removes a #${id} user`;
+  create(data: { email: string; password: string; name: string }) {
+    return this.prisma.user.create({
+      data,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+        // password excluded from response
+      },
+    });
   }
 }
