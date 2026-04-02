@@ -43,20 +43,26 @@
 //   controllers: [AuthController],
 // })
 // export class AuthModule {}
-import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { Global, Module } from '@nestjs/common';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
+import { CloudinaryService } from 'src/common/services/cloudinary.service';
 
+
+// @Global()
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     ConfigModule,
+    // JwtModule.register({
+    //   global: true,
+    // })
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -66,7 +72,7 @@ import { UsersModule } from '../users/users.module';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, CloudinaryService],
   controllers: [AuthController],
 })
 export class AuthModule {}

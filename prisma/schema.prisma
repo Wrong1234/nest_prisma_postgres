@@ -16,8 +16,27 @@ model User {
   email  String @unique
   name   String?
   password String
+  image  String?
+  phone  String?
+  nid    String?
+  profession String?
+  // address Address?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   @@map("users")
 }
+
+// model Address {
+// id       Int      @id @default(autoincrement())
+// street   String
+// city     String
+// state    String
+// zipCode  String
+// country  String
+// userId   Int      @unique
+// user     User     @relation(fields: [userId], references: [id])
+// createdAt DateTime @default(now())
+// updatedAt DateTime @updatedAt
+//   @@map("addresses")
+// }

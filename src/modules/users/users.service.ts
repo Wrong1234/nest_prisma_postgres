@@ -48,6 +48,8 @@ export class UsersService {
         name: true,
         createdAt: true,
         updatedAt: true,
+        password: true,
+        // image: true,
         // password excluded intentionally for security
       },
     });
@@ -63,6 +65,19 @@ export class UsersService {
         createdAt: true,
         updatedAt: true,
         // password excluded from response
+      },
+    });
+  }
+  update(id: number, data: { email?: string; password?: string; name?: string }) {
+    return this.prisma.user.update({
+      where: { id },
+      data,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
