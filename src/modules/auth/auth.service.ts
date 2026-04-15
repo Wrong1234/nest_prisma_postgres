@@ -1,92 +1,143 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { UsersService } from '../users/users.service';
+import { Prisma } from '@prisma/client';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { UpdateAuthDto } from './dto/update.dto';
-import { CloudinaryService } from '../../common/services/cloudinary.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ChangePasswordDto } from './dto/change_password.dto';
+
+const PUBLIC_SELECT = {
+  id: true,
+  email: true,
+  name: true,
+  image: true,
+  phone: true,
+  profession: true,
+  nid: true,
+  createdAt: true,
+  updatedAt: true,
+  addresses: {
+    select: {
+      id: true,
+      street: true,
+      city: true,
+      state: true,
+      zipCode: true,
+      country: true,
+    },
+  },
+} satisfies Prisma.UserSelect;
 
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly usersService: UsersService,
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async register(dto: RegisterDto) {
-    const existing = await this.usersService.findByEmail(dto.email);
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new ConflictException('Email already in use');
 
-    const hashed = await bcrypt.hash(dto.password, 10);
-    const user = await this.usersService.create({
-      email: dto.email,
-      password: hashed,
-      name: dto.name,
+    const { addresses, password: raw, ...rest } = dto;
+    const password = await bcrypt.hash(raw, 10);
+
+    const user = await this.prisma.user.create({
+      data: {
+        ...rest,
+        password,
+        ...(addresses?.length && {
+          addresses: { create: addresses },
+        }),
+      },
+      select: PUBLIC_SELECT,
     });
 
-    const token = this.generateToken(user.id, user.email);
-    return { user: { id: user.id, email: user.email, name: user.name }, token };
+    return { user, token: this.signToken(user.id, user.email) };
   }
 
   async login(dto: LoginDto) {
-    const user = await this.usersService.findByEmail(dto.email);
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      select: { ...PUBLIC_SELECT, password: true },
+    });
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Invalid credentials');
 
-    const token = this.generateToken(user.id, user.email);
-    return { user: { id: user.id, email: user.email, name: user.name }, token };
+    const { password: _, ...safeUser } = user;
+    return { user: safeUser, token: this.signToken(user.id, user.email) };
   }
 
-  async changePassword(userId: number, dto: { currentPassword: string; newPassword: string }) {
+  async getMe(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: PUBLIC_SELECT,
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
 
-    const user = await this.usersService.findById(userId);
-    if (!user) throw new UnauthorizedException('User not found');
-    // console.log('User found for password change:', dto, user);
+  async changePassword(userId: number, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
 
     const valid = await bcrypt.compare(dto.currentPassword, user.password);
     if (!valid) throw new UnauthorizedException('Current password is incorrect');
 
-    const hashed = await bcrypt.hash(dto.newPassword, 10);
-    const updatedUser = await this.usersService.update(user.id, { password: hashed });
-    return updatedUser;
-  }
-async updateProfile(
-  userId: number,
-  dto: UpdateAuthDto,
-  file?: Express.Multer.File,
-) {
-  const user = await this.usersService.findById(userId);
-  if (!user) throw new UnauthorizedException('User not found');
-
-  if (dto.email && dto.email !== user.email) {
-    const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) throw new ConflictException('Email already in use');
+    const password = await bcrypt.hash(dto.newPassword, 10);
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { password },
+      select: PUBLIC_SELECT,
+    });
   }
 
-  let imageUrl: string | undefined;
+  async updateProfile(userId: number, dto: UpdateAuthDto, file?: Express.Multer.File) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, image: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
 
-  if (file) {
-    // Delete old image from Cloudinary if exists
-    if (user.image) {
-      await this.cloudinaryService.deleteImage(user.image);
+    let image: string | undefined;
+    if (file) {
+      if (user.image) await this.cloudinaryService.deleteImage(user.image);
+      image = await this.cloudinaryService.uploadImage(file, 'profiles');
     }
-    // Upload new image
-    imageUrl = await this.cloudinaryService.uploadImage(file, 'profiles');
+
+    const { addresses, ...rest } = dto;
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...rest,
+        ...(image && { image }),
+        ...(addresses && {
+          addresses: {
+            deleteMany: { userId },
+            create: addresses.map((addr) => addr)
+          },
+        }),
+      },
+      select: PUBLIC_SELECT,
+    });
   }
 
-  const updatedUser = await this.usersService.update(userId, {
-    ...dto,
-    ...(imageUrl && { image: imageUrl }),
-  });
-
-  return updatedUser;
-}
-
-  private generateToken(userId: number, email: string) {
+  private signToken(userId: number, email: string) {
     return this.jwtService.sign({ sub: userId, email });
   }
 }
